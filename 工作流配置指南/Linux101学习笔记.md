@@ -1366,54 +1366,545 @@ fork 炸弹的核心是函数内容：`func | func &`
 ## Chapter 11 - Linux上的编程
 ### 1. C语言开发
 #### 1.1 单语言开发
+在 Windows 或 Mac OS X 这样带 GUI 的系统上，通过安装 IDE，我们可以使用 IDE 中的编译功能来编译出目标。 实际上，这些带有图形界面的 IDE 的编译往往是封装了各种提供命令行接口的编译器。 自然，在众多无 GUI 的 Linux 上，我们同样可以调用这些提供命令行接口的编译器进行编译。
 
+**各平台常用的编译器**
+1. Linux 上常用的编译器是 gcc 和 clang。 其中 gcc 是由 GNU 组织维护的，而 clang 是由 LLVM 组织维护的。
+2. Mac OS X 本身由 BSD 发展而来，也以 gcc 和 clang 为主。 值得一提的是，Mac OS X 上自带的 gcc 其实是 clang 的别名，在 Terminal 输入 `gcc -v` 即可发现。
+3. windows不说
 
+这里我们使用 gcc 对这个文件进行编译，生成二进制文件：
+```bash
+$ gcc main.c -o main
+$ ./main
+Hello World!
+```
+这里用 `-o` 指定了输出的==二进制文件的文件名== `main`。
+
+应当注意到 `gcc main.c -o main` 这条指令没有打印出任何内容。 这是因为整个编译过程是成功的，gcc 没有需要报告的内容，因此保持沉默。(这是 Unix 哲学的一部分)
 #### 1.2 多文件状态
+只在一个文件中编写代码，对于稍微大的开发都是不够的： 对于个人维护的小项目尚可，但当你面临的是一个多人开发、模块复杂、功能繁多的大项目时（无论是在公司工程还是在实验室科研中，这都是普遍的情况）， 拆分代码到多个文件才是一个明智（或者说可行）的做法。
+##### 1.2.1 前置基础
+假设你拥有一下两个文件：
+```bash
+// main.c
+#include "print.h"
 
+int main() {
+  print();
+  return 0;
+}
+```
 
+```bash
+// print.c
+#include "print.h"
+
+#include <stdio.h>
+
+void print() {
+  printf("Hello World!\n");
+}
+```
+那为了在 main.c 中调用 `void print()` 这个函数，你需要做以下几件事：
+
+- 在当前目录下新建一个头文件 print.h；
+- 在 print.h 中填入以下内容：
+```bash
+// print.h
+#ifndef PRINT
+#define PRINT
+
+void print();
+
+#endif  // PRINT
+```
+
+这里的 `#ifndef ... #define ... #endif` 是头文件保护，防止同一头文件被 `#include` 两次造成重复声明的错误， 如果你不理解这部分也没关系，只需保证 `void print();` 这一行声明存在即可。
+
+- 在 main.c 和 print.c 中同时 `#include "print.h"`。
+
+这样，程序就可以被编译运行了！
+##### 1.2.2 补充说明宏定义
+```bash
+#ifndef A
+#define B
+C
+#endif
+D
+```
+如果标识A没有定义，则定义B，执行C，直到endif结束
+如果A已经被定义，则直接跳过B/C，直接执行D
+##### 1.2.3 具体执行过程
+假设文件就是上面的三个
+我们将依次**编译链接**，生成目标的**二进制可执行程序**。让我们看一下命令：
+```bash
+$ gcc main.c -c  # 生成 main.o
+$ gcc print.c -c  # 生成 print.o
+$ gcc main.o print.o -o main
+$ ./main
+Hello World!
+```
+
+这里我们使用了 `gcc -c`： `-c` 会将源文件编译为*对象文件*（Object file，.o 这一后缀就源自单词 object 的首字母）。 
+==对象文件是二进制文件，不过它不可执行==，因为其中需要引用外部代码的地方，是用占位数替代的，无法真正调用函数。
+
+注意到我们没有添加 `-o` 选项，因为 `-c` 存在时 gcc 总会生成相同文件名（这里特指 basename，main.c 中的 main 部分）的 .o 对象文件。
+
+生成了对象文件后，我们来进行*链接*，在相应函数调用的位置填上函数真正的地址，从而生成*二进制可执行文件*。 `gcc` 这一指令会根据输入文件的类型调用相应的程序完成整个编译流程。 在这里，虽然同样是 gcc 指令，但是**由于输入的为 .o 文件，gcc 将调用链接器进行链接，从而生成最终的可执行文件。
+
+##### 1.2.4 gcc编译的四个过程
+gcc 的编译其实是四个过程的集合，分别是预处理（preprocessing）、编译（compilation）、汇编（assembly）、链接（linking）， 分别由 cpp、cc1、as、ld 这四个程序完成，gcc 是它们的封装。
+
+这四个过程分别完成：处理 `#` 开头的预编译指令、将源码编译为汇编代码、将汇编代码编译为二进制代码、组合众多二进制代码生成可执行文件， 也可分别调用 `gcc -E`、`gcc -S`、`gcc -c`、`gcc` 来完成。
+
+在这一过程中，文件经历了如下变化：`main.c` 到 `main.i` 到 `main.s` 到 `main.o` 到 `main`。
 #### 1.3 构建工具的使用
+上述方法在源文件较少时是比较方便的，但当我们面对的是数以千计万计的源文件（同样的，在工作或科研中这也是常见状况），我们将面临以下困难：
+
+- 手动地一一编译实在太麻烦，太浪费精力；
+- 这些源文件的编译有顺序要求，为了满足此依赖关系需要设计一个流程；
+- 编译整个项目需要难以忍受的大量时间，应当考虑到一部分未更改的源文件不需要重新编译。
+
+为了让机器帮助程序员解决这些困难，构建工具应运而生。 同样的，由于需求巨大，构建工具在 Linux 上亦获得了强力支持：
 ##### 1.3.1 makefile
+Makefile 是中小型项目常用的构建工具。 让我们考虑以下例子：
 
+假设前述 3 份源文件已存在在当前目录下。 创建以下内容的文件，并命名为 `Makefile`：
+```bash
+# 写法1
+main.o: main.c print.h
+print.o: print.c print.h
+main: main.o print.o
+```
 
+然后在当前目录下执行：
+```bash
+$ make main
+$ ./main
+Hello World!
+```
+
+为了解释这一过程，我们来分析一下 Makefile 的内容。其中：
+```bash
+main.o: main.c print.h
+```
+
+这一行，通过冒号分割，指定了一个名为 `main.o` 的目标，其依赖为 `main.c` 和 `print.h`。 由于整个文件中没有名为 `main.c` 的目标，所以 Makefile 会认为对应的 `main.c` 文件为一个依赖，`print.h` 同理。
+
+在指定了目标和依赖后，紧接着的下一行如果用 **Tab** 缩进，则可以指定利用依赖获得目标的指令。 例如：
+
+```bash
+main.o: main.c print.h
+    gcc main.c -c  # 一定要用 Tab 缩进而不是 4 个 / 2 个空格——这是历史遗留问题。
+```
+
+以上内容表示如果要获得 `main.o` 这个目标，则会执行 `gcc main.c -c` 这个指令。 *如果没有指定命令，Makefile 会尝试从文件后缀等处获取信息，推测你需要的指令。 例如此处即使不显式写出指令，Makefile 也知道用 gcc 来完成编译*！
+
+最终我们在 shell 中执行 `make main`，正是指定了一个最终目标。 如果不提供这个目标，Makefile 则会选择 Makefile 文件中第一目标。 为了获得最终目标，Makefile 会递归地获取依赖、执行指令。
+
+Makefile 的亮点在于引入了文件间的依赖关系。 在使用它进行构建时，Makefile 可以根据文件间的依赖关系和文件更新时间，找出需要重新编译的文件。 在项目较大时这能明显节省构建所需的时间，同时也能解决一些由于编译链接顺序造成的问题。 相较与输入一大串指令，单个的 `make [target]` 甚至是仅仅 `make`，也更加优雅和方便。
+
+根据上述，很显然makefile还有另外一种写法：
+```bash
+# 写法2
+main.o: main.c print.h
+	gcc main.c -c # 明确写出依赖/目标对应的指令
+print.o: print.c print.h
+	gcc print.c -c #  明确写出依赖/目标对应的指令
+main: main.o print.o
+	gcc main.o print.o -o main #  明确写出依赖/目标对应的指令
+```
+```bash
+┌─(~/code_projects/ubuntu/muiti_files)────────────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:01:25 on main ✖ ✭)──> make main                                                 ──(三, 228)─┘
+make: `main' is up to date.
+┌─(~/code_projects/ubuntu/muiti_files)────────────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:01:27 on main ✖ ✭)──> ./main                                                    ──(三, 228)─┘
+Hello hbx!
+```
 ##### 1.3.2 cmake和ninja
+一个更大的工程可能有上万、上十万份源文件，如果一一写进 Makefile，那依然会异常痛苦，且几乎不可能维护。
 
+为了更好的构建程序，大家想出了“套娃”的办法：用一个程序来生成构建所需的配置，CMake 则在这一想法下诞生。
 
+CMake 在默认情况下，可以通过 `cmake` 命令生成 Makefile，再进一步进行 `make`
+
+详见笔者整理的另一份教程[《CMake_Tutorial》](https://github.com/root-hbx/CMake_Tutorial)
+
+另一个值得一提的是 ninja。ninja 和 Makefile、autoconf 较类似，是构建工具，所属抽象层次低于 CMake。 ninja 的特点的是相较与 Makefile 更快，对于多线程编译的支持更好。 
 #### 1.4 C++
+C++ 的工具链与 C 的是相似的：
 
+实际上，只需将上面内容中的 `gcc` 指令改为 `g++`，你就能同样地完成 C++ 的开发。 gcc 这一编译器本身即支持多种编程语言，包括了 C、C++、Objective C 等。 
 
+其他编译器如 clang 也会提供 `clang++` 这样的指令完成 C++ 的编译。 
+
+Makefile、CMake 这样的构建工具亦可以用于多种编程语言。
 ### 2. Python语言开发
 #### 2.1 python解释器
+一般的 Python（CPython）程序的运行，依靠的是 **Python 解释器（Interpreter）**。 在 Python 解释器中，Python 代码首先被处理成一种*字节码*（Bytecode，与 JVM 运行的字节码不是一个东西，但有相似之处）， 然后再交由 *PVM（Python virtual machine）* 进行执行，从而实现跨平台和动态等特性。
 
+由于使用过于广泛，几乎每一份 Linux 都带有 Python 解释器，以命令 `python2` 或 `python3` 调用，分别对应两个版本的 Python。
 #### 2.2 包管理器pip
+为使用外部的第三方包，Python 提供了一个包管理器：pip。
 
+pip 和 apt 之类的包管理器有相似之处：完成包的安装和管理，完成依赖的分析，等等。 **不过 pip 管理的是 Python 包，可以在 Python 代码中使用这些包**
 #### 2.3 python依赖管理
+一个软件一般含有众多依赖，尤其是对于追求易用、外部库众多的 Python 而言，使用外部库作为依赖是常事。
 
+此处给出各种使用较多的 Python 依赖管理方案：
+##### 2.3.1 requirements.txt
+在一些项目下，你可能会发现一个名为 `requirement.txt` 的文件，里面是一行行的 Python 包名和一些对于软件版本的限制。例如，如果我想要下载django，且指明了pytest和pytest-cov的版本，则应当：
+```bash
+# requirements.txt
+django
+pytest>=3.0.0
+pytest-cov==1.0.0
+```
+
+为了安装这些 Python 包，使用以下指令：
+```bash
+$ pip3 install -r requirements.txt
+```
+
+这将从 `requirements.txt` 文件中逐行读取包名和版本限制，并由 pip 完成安装。
+
+此方案简单明了，易于使用，但对于依赖的处理能力不足！
+##### 2.3.2 setuptools：setup.py
+在 PyPI，即 pip 获取 Python 包的来源中，使用 setuptools 是主流选择。 setuptools 不是 Python 官方的项目，但它已成为 Python 打包（packaging）的事实标准。
+
+常见状况是目录下会有一个名为 `setup.py` 的文件。 要安装依赖，只需：
+
+```bash
+$ ls
+setup.py
+$ pip3 install .
+```
+
+这种方案特点是使用广泛，易于对接，能提供的信息和配置较全，但配置起来也较复杂！
+##### 2.3.3 其他的：pip-tools、pipenv
+pip-tools 可以看作对 requirements.txt 的增强。 它额外提供了 `requirements.dev` 文件，从而完成了对于依赖进行版本锁定的支持。
+
+pipenv 则是一个更加全面的解决方案，它提供了类似于 npm 的配置文件和 lock 文件，对于依赖有非常强的管理功能。 但其完成度和工业中的稳定性尚有待证明。
+
+Python 有非常多的依赖管理方案，某种意义上讲是自带的 pip 管理功能不足所造成的。 一般而言，只需熟悉常用的 requirements.txt 和 setuptools 方案即可。
 #### 2.4 虚拟环境
+##### 2.4.1 常规安装的默认位置
+- Python 通过包管理器如 apt 安装的包，默认安装在系统目录 `/usr/lib/python[version]` 下；
+- 而通过 pip 安装的包，默认安装目录在 `/usr/local/lib/python[version]` 下；
+- 当通过 pip 安装时显式传入了一个 `--user` 选项时，则会安装在用户目录 `~/.local/lib/python[version]` 下；
+- 另外，在普通用户下直接执行 pip install 而没有传入 `--user` 选项时，也会因为用户没有系统目录的写权限而安装到用户目录。 
 
+当普通地运行 Python 解释器时，上述这几个目录下的包均可见！
+##### 2.4.2 问题产生
+现在假设用户目录下已有一个包 `a`，版本为 `1.0.0`。 现在我们需要开发一个程序，也需要包 `a`，但要求版本大于 `2.0.0`。
+
+由于 pip 不允许同时安装不同版本的同一个包，当你运行 `pip3 install a>=2.0.0` 时，pip 会更新 `a` 到 `2.0.0`， 那原先依赖于 `a==1.0.0` 的软件就无法正常运行了。
+
+>PS：在一些 Shell（如 zsh）中，`>=` 有特殊含义。 此时上述命令应用引号包裹 `>=` 部分，如 `pip3 install 'a>=2.0.0'`
+##### 2.4.3 解决问题
+为了解决这一问题，允许不同软件使用不同版本的包，Python 提供了 Virtualenv 这个工具。 其使用方法如下：
+
+一般 Virtualenv 会带在默认安装的 Python 中。 如果没有，可以用 `sudo apt install python3-venv` 来安装。
+
+常见的做法是使用 Python 的模块运行来完成在 Shell 中的执行：
+```bash
+python3 -m venv .venv  # 这是我的命名习惯 (.venv)
+```
+
+以上指令中，`-m` 表示运行一个指定的模块，前一个 `venv` 指运行 venv 这个包的主模块 `__main__`， 后一个 `.venv` 是参数，为生成目录的路径。 这将使 venv(产生“虚拟环境”的包) 在**当前目录下**生成一个名为 `.venv` 的目录。
+
+在一般的 shell 环境下，我们将使用 `source .venv/bin/activate` 来启用这个 venv。
+
+完成以上操作后，你就进入了**当前目录下 .venv 文件夹所对应的 Virtualenv**。 此时，你使用 `pip3 install` 安装的 Python 包*将会被安装在 venv 这个文件夹中*， 这些包也只有在你 `source .venv/bin/activate` 之后才可见，*外部无法找到这些包*。 通过 `deactivate` 可以退出 Virtualenv，回到之前的环境中。
+
+实际上，由于 Python 是借助一些环境变量来完成包搜索的步骤的，`source venv/bin/activate`其实是配置了一些环境变量，从而达到目的。这样，就实现了程序间依赖的隔离。
+
+你可以在下列代码中轻松看出.venv的操作逻辑：（`la` = `ls -a`）
+```bash
+┌─(~/code_projects/ubuntu/muiti_files)────────────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:30:36 on main ✖ ✭)──> ls                                                        ──(三, 228)─┘
+main     main.c   main.o   makefile print.c  print.h  print.o
+┌─(~/code_projects/ubuntu/muiti_files)────────────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:30:38 on main ✖ ✭)──> la                                                        ──(三, 228)─┘
+.        ..       .venv    main     main.c   main.o   makefile print.c  print.h  print.o
+┌─(~/code_projects/ubuntu/muiti_files)─────────────────────
+```
+
+```bash
+┌─(~/code_projects/ubuntu/muiti_files)────────────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:34:43 on main ✖ ✭)──> cd .venv                                                  ──(三, 228)─┘
+┌─(~/code_projects/ubuntu/muiti_files/.venv)──────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:34:49 on main ✖ ✭)──> ls                                                        ──(三, 228)─┘
+bin        include    lib        pyvenv.cfg share
+┌─(~/code_projects/ubuntu/muiti_files/.venv)──────────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:34:51 on main ✖ ✭)──> cd bin                                                    ──(三, 228)─┘
+┌─(~/code_projects/ubuntu/muiti_files/.venv/bin)──────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:34:54 on main ✖ ✭)──> ls                                                        ──(三, 228)─┘
+Activate.ps1  activate.fish pip           pyftmerge     python3
+activate      f2py          pip3          pyftsubset    python3.11
+activate.csh  fonttools     pip3.11       python        ttx
+┌─(~/code_projects/ubuntu/muiti_files/.venv/bin)──────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:34:56 on main ✖ ✭)──> cd ../lib                                                 ──(三, 228)─┘
+┌─(~/code_projects/ubuntu/muiti_files/.venv/lib)──────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:35:10 on main ✖ ✭)──> ls                                                        ──(三, 228)─┘
+python3.11
+┌─(~/code_projects/ubuntu/muiti_files/.venv/lib)──────────────(huluobo@huluobodeMacBook-Pro:s000)─┐
+└─(11:35:11 on main ✖ ✭)──>
+```
 #### 2.5 python的补充阅读
 ##### 2.5.1 python的版本
-
+略
 ##### 2.5.2 python的其他实现
+Python 作为一门编程语言，**官方的实现是 CPython**，我们一般使用的、成为事实标准的就是这个。 CPython 中的 *C 是指此解释器是用 C 实现*。
 
+相应的，Python 还有其他的一些实现：
+- JPython：将 Python 编译到 Java 字节码，由 JVM 来运行；
+- PyPy：相较于 CPython，实现了 JIT（just in time）编译器，性能有极大地提升；
+- Cython：引入了额外的语法和严密的类型系统，性能也有很大提升；
+- Numba：将 Python 编译到机器码，从而直接运行，性能也不错。
+
+视情况使用不同的 Python 实现能够很大程度地提升性能。 但如果你不确定自己的意向，且性能需求不大，使用官方的 CPython 也是明智之选。
 ##### 2.5.3 Anaconda 与 Miniconda
+**1. Conda 是一个广泛使用的开源的包管理与环境管理系统：**
+Miniconda 与 Anaconda 是两个广为人知的基于 Conda 的 Python 的发行版本。
 
+**2. Miniconda 和 Anaconda 都是开源的 Python 的发行版本：**
+Miniconda 是 Anaconda 的免费迷你版本，只包含了 Conda、Python 及其依赖，以及少量其他有用的包，例如 pip 和 zlib。而 Anaconda 则额外包含了 250 多个自动安装的科学软件包，例如 SciPy 和 NumPy，并且测试了这些软件包之间的兼容性。Anaconda 分为个人版、商业版、团队版、企业版，除了个人版以外，其余版本均为付费产品。
 
+**3. Conda 作为包管理器：**
+类似于 pip，可以使用 `conda install` 来安装软件包。部分软件包既可以使用 pip 安装，也可以使用 conda 安装。 相比于 pip，conda 会执行更加严格的依赖检查，并且除了 Python 软件包外，还可以安装一些 C/C++ 软件包，例如 cudatoolkit、mkl 等。相对的，conda 支持的 Python 软件包的数量远少于 PyPI。
 ## Chapter 12 - Docker
 这一章详见笔者另一份笔记《Docker学习指南》
 此处从略
 ## Chapter 13 - Shell高级文本处理与正则表达式
 ### 1. 其他常用的文本处理工具
+#### 1.1 sort
+sort 用于文本的行排序。默认排序方式是升序，按每行的字典序排序。
 
+一些基本用法：
+- `-r` 降序（从大到小）排序
+- `-u` 去除重复行
+- `-o [file]` 指定输出文件
+- `-n` 用于数值排序，否则“15”会排在“2”前
 
+```bash
+$ echo -e "snake\nfox\nfish\ncat\nfish\ndog" > animals
+$ sort animals
+cat
+dog
+fish
+fish
+fox
+snake
+$ sort -r animals
+snake
+fox
+fish
+fish
+dog
+cat
+$ sort -u animals
+cat
+dog
+fish
+fox
+snake
+$ sort -u animals -o animals
+$ cat animals
+cat
+dog
+fish
+fox
+snake
+$ echo -e "1\n2\n15\n3\n4" > numbers
+$ sort numbers
+1
+15
+2
+3
+4
+$ sort -n numbers
+1
+2
+3
+4
+15
+```
+#### 1.2 uniq
+uniq 也可以用来排除重复的行，但是*仅对连续的重复行生效*！
 
+通常会和 sort 一起使用：`$ sort animals | uniq`
+
+只是去重排序明明可以用 `sort -u` ，uniq 工具是否多余了呢？实际上 uniq 还有其他用途。
+
+`uniq -d` 可以用于仅输出重复行：`$ sort animals | uniq -d`
+
+`uniq -c` 可以用于统计各行重复次数：`$ sort animals | uniq -c`
 ### 2. 正则表达式拓展
+正则表达式（regular expression）描述了一种**字符串匹配的模式**，可以用来检查一个串是否含有某种子串、将匹配的子串做替换或者从某个串中取出符合某个条件的子串等。
+#### 2.1 常用特殊字符
 
+| 特殊字符   | 描述                                                                      |
+| ------ | ----------------------------------------------------------------------- |
+| `[]`   | 方括号表达式，表示匹配的字符集合，例如 `[0-9]`、`[abcde]`                                   |
+| `()`   | 标记子表达式起止位置                                                              |
+| `*`    | 匹配前面的子表达式*零或多次*                                                         |
+| `+`    | 匹配前面的子表达式*一或多次*                                                         |
+| `?`    | 匹配前面的子表达式*零或一次*                                                         |
+| `\`    | 转义字符，除了常用转义外，还有：`\b` 匹配单词边界；`\B` 匹配非单词边界等！                              |
+| `.`    | 匹配除 `\n`（换行）外的*任意单个字符*                                                  |
+| `{}`   | 标记*限定符表达式的起止*。例如 `{n}` 表示匹配前一子表达式 n 次；`{n,}` 匹配至少 n 次；`{n,m}`匹配 n 至 m 次 |
+| **\|** | 表明*前后两项二选一*                                                             |
+| `$`    | 匹配字符串的结尾                                                                |
+| `^`    | 常规是匹配*字符串的开头*；特殊：在方括号表达式**内部**表示*不接受该方括号表达式中的字符集合*                      |
 
-
+以上特殊字符，若是想要匹配特殊字符本身，需要在之前加上转义字符 `\`。
+#### 2.2 应用示例
+匹配正整数
+```bash
+[1-9][0-9]*     
+# 该数字第一位在1～9中；第二位在0～9中；第三位往后就“重复2的要求”，可延展零/多次
+```
+匹配仅由 26 个英文字母组成的字符串
+```bash
+^[A-Za-z]+$ 
+# ^字符串开头；[...]表示接受由A-Z/a-z开头的字符串；+$表示到字符串的结尾了
+```
+匹配以除大写或小写字母之外的任何字符开头的字符串
+```bash
+[^A-Za-z]+$   
+# 同上！
+```
+匹配 Chapter 1-99 或 Section 1-99
+```bash
+^(Chapter|Section) [1-9][0-9]{0,1}$
+# 以Chapter或Section开头；随后的是数字1-9；下一位是数字0-9，可以匹配0或1次
+# [针对[0-9]{0,1}.      eg: 个位数1，就匹配0次“第二位数字”；十位数66，就要匹配1次“第二位数字”]
+```
+匹配“ter”结尾的单词
+```bash
+ter\b
+```
 ### 3. 正则文本处理工具
+基本正则表达式（Basic Regular Expressions, BRE）和扩展正则表达式（Extended Regular Expressions, ERE）是两种 POSIX 正则表达式风格。
 
+- BRE 可能是如今最老的正则风格了，对于部分特殊字符（如 `+`, `?`, `|`, `{`）需要加上转义符 `\` 才能表达其特殊含义。
+- ERE 与如今的现代正则风格较为一致，相比 BRE，上述特殊字符默认发挥特殊作用，加上 `\` 之后表达普通含义。
+#### 3.1 grep
+grep 全称 Global Regular Expression Print，是一个*强大的文本搜索工具*，可以在一个或多个文件中搜索指定 pattern 并显示相关行。
 
+grep 默认使用 BRE，要使用 ERE 可以使用 `grep -E` 或 egrep
 
+命令格式：`grep [option] pattern file`
+
+一些用法：
+
+- `-n`：显示匹配到内容的行号
+- `-v`：显示不被匹配到的行
+- `-i`：忽略字符大小写
+
+```bash
+$ ls /bin | grep -n "^man$"            # 搜索内容仅含 man 的行，并且显示行号
+$ ls /bin | grep -v "[a-z]\|[0-9]"    # 搜索不含小写字母和数字的行
+$ ls /bin | grep -iv "[A-Z]\|[0-9]"   # 搜索不含字母和数字的行
+```
+#### 3.2 sed
+==这一部分我个人认为不重要，可以忽略！==
+
+sed 全称 Stream EDitor，即流编辑器，可以方便地*对文件的内容进行逐行处理*。
+
+sed 默认使用 BRE，要使用 ERE 可以 sed -E。
+
+命令格式：
+```bash
+$ sed [OPTIONS] 'command' file(s)
+$ sed [OPTIONS] -f scriptfile file(s)
+```
+
+此处的 command 和 scriptfile 中的命令均指的是 sed 命令。
+
+常见 sed 命令：
+
+- s 替换
+- d 删除
+- c 选定行改成新文本
+- a 当前行下插入文本
+- i 当前行上插入文本
+
+```bash
+$ echo -e "seD\nIS\ngOod" > sed_demo
+$ cat sed_demo
+seD
+IS
+gOod
+$ sed "2d" sed_demo  # 删除第二行
+seD
+gOod
+$ sed "s/[a-z]/~/g" sed_demo  # 替换所有小写字母为 ~
+~~D
+IS
+~O~~
+$ sed "3cpErfeCt" sed_demo  # 选定第三行，改成 pErfeCt
+seD
+IS
+pErfeCt
+```
+#### 3.3 awk
+==这一部分我个人认为不重要，可以忽略！==
+
+awk 是一种用于处理文本的编程语言工具，名字来源于三个作者的首字母。相比 sed，*awk 可以在逐行处理的基础上，针对列进行处理*。默认的列分隔符号是空格，其他分隔符可以自行指定。
+
+awk 使用 ERE。
+
+命令格式：`awk [options] 'pattern {action}' [file]`
+
+awk 逐行处理文本，对符合的 patthern 执行 action。需要注意的是，awk 使用单引号时可以直接用 `$`，使用双引号则要用 `\$`。
+
+```bash
+$ cat awk_demo
+Beth    4.00    0
+Dan     3.75    0
+kathy   4.00    10
+Mark    5.00    20
+Mary    5.50    22
+Susie   4.25    18
+$ # 选择第三列值大于 0 的行，对每一行输出第一列的值和第二第三列的乘积
+$ awk '$3 >0 { print $1, $2 * $3 }' awk_demo
+kathy 40
+Mark 100
+Mary 121
+Susie 76.5
+```
+
+示例中 `$1`，`$2`，`$3` 分别指代本行的第 1、2、3 列。特别地，$0 指代本行。
+
+awk 语言是「图灵完全」的，这意味着理论上它可以做到和其他语言一样的事情。这里我们不仅可以对每行进行操作，还可以定义变量，将前面处理的状态保存下来，以下是一个求和的例子：
+
+```bash
+$ awk 'BEGIN { sum = 0 } { sum += $2 * $3 } END { print sum }' awk_demo
+337.5
+```
 ### 4. 正则中的细节
+注：以下正则语法如需在 `grep` 中使用，需要加上参数 `-P`，表示使用 Perl 语法！
+#### 4.1 懒惰和贪婪
+- 使用 `*` `+` 的时候默认是贪婪模式，即尽可能匹配更多的子表达式。
+- 在 `*` `+` 之后加上 `?` 变为懒惰模式，即尽可能匹配更少的子表达式。
 
+例如：`123456456`
+=> 贪婪：`1.+6` -> `123456456`
+=> 懒惰：`1.+?6` -> `123456`
+#### 4.2 后向引用
+后向引用可以**将之前匹配到的具体内容再次利用**。在正则表达式中，`( )` 以及它们包含的内容为一个分组，每个分组默认拥有一个组号。
 
+组号分配规则：
+- 0 代表整个表达式
+- 从左至右，按左括号的出现顺序分配，第一个为 1，第二个为 2，以此类推
+- 扫描两遍，第一次只分配未命名的组，第二次只分配命名的组。即任意命名组的组号都大于未命名的组号
+#### 4.3 零宽断言
+零宽断言用于查找某些内容进行定位，但内容并不放入匹配结果，就像 `\b` `^` `$` 的定位一样。`(?=exp)` 用于匹配表达式 `exp` 前面的位置，`(?<=exp)` 用于匹配后面的位置。
+
+`\b\w+(?=ing\b)` 可以匹配 `ing` 结尾的单词前面的部分。例如 `going` 中的 `go` 会被该正则匹配。
+
+`(?<=\bre)\w+\b` 可以匹配 `re` 开开头的单词的后面一部分。例如 `revue` 中的 `vue` 会被该正则匹配。
