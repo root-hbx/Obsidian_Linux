@@ -1,4 +1,4 @@
-# 前置说明
+# 一. 前言
 1. 服务器端的运维需要掌握 Linux（或者其他类 Unix 系统）的基本使用以及进程、设备、网络等系统相关的基本概念:
 - Reference1: [USTC《Linux101》](https://101.lug.ustc.edu.cn/)
 2. 如果需要学习某个具体的概念或工具，比如常见的运维的基础知识和教程，例如 Docker, Kubernetes, Linux, CI-CD, GitHub Actions...
@@ -6,7 +6,7 @@
 3. 这是笔者的学习笔记，由于很多Linux运维知识已进行模块化学习，本教程旨在“将碎片编成网”，因此这份教程是对知识的梳理总结，面向非零基础同学
 4. 这份教程主要参考[Linux101_USTC](https://101.lug.ustc.edu.cn/)（引用率超过90%），但会在此基础上补充一些针对Mac命令的说明
 5. 建议学习时长：100h
-# 教程内容
+# 二. 教程内容
 ## Chapter 1 - 计算机系统背景、Linux初介绍、环境配置
 **Key Words：**
 >OS / Unix / GNU / Linux Kernal / Linux发行版 / 虚拟机 / 服务器 / ssh远程连接 / WSL / Ubuntu环境配置 (Win + Apple Silicon)
@@ -1908,3 +1908,15 @@ $ awk 'BEGIN { sum = 0 } { sum += $2 * $3 } END { print sum }' awk_demo
 `\b\w+(?=ing\b)` 可以匹配 `ing` 结尾的单词前面的部分。例如 `going` 中的 `go` 会被该正则匹配。
 
 `(?<=\bre)\w+\b` 可以匹配 `re` 开开头的单词的后面一部分。例如 `revue` 中的 `vue` 会被该正则匹配。
+# 三. 后记
+1. 这本书笔者阅读整理约48h，获益良多
+2. 很显然我的阅读笔记并不适用于每一位读者
+3. 读到这里相信你还会对一些地方有困惑，具体如下：
+
+|        本文忽略的部分        |                                         对应资源                                          |
+| :-------------------: | :-----------------------------------------------------------------------------------: |
+| 如何在AppleSilicon中使用虚拟机 |                          [orbstack官网](https://orbstack.dev)                           |
+|       ssh远程连接指南       | [GitHub-SSH](https://docs.github.com/zh/authentication/connecting-to-github-with-ssh) |
+|       tmux入门指南        |                  [tmux的github仓库](https://github.com/tmux/tmux/wiki)                   |
+|         CMake         |               [笔者的CMake笔记](https://github.com/root-hbx/CMake_Tutorial)                |
+|      Shell脚本的书写       |           [笔者的Shell脚本编程笔记](https://github.com/root-hbx/Shell_Prog_Tutorial)           |
